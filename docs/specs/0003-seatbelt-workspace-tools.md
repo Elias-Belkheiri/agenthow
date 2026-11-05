@@ -27,7 +27,15 @@ is separate, unchanged, and neither hardened nor replaced by this backend.
    initializers, outside writable roots. It freezes this snapshot for the session.
    The resolved interpreter must be inside its base installation; runtime,
    installation, workspace, and scratch must be separate.
-3. Each tool call validates exact arguments and serializes a bounded payload before
+3. Chat advertises native function schemas for its selected dispatcher through
+   LiteLLM (Groq and Gemini), not JSON-action instructions. Structured assistant
+   calls and ID-linked tool results form the history; ordinary answer text is
+   never parsed as an executable action. Calls execute sequentially (up to 16 per
+   model turn) under the shared remaining deadline. Invalid/duplicate call IDs
+   reject a batch before execution; unknown tools or invalid argument JSON/types/
+   keys return linked errors without dispatch. No legacy-protocol fallback exists.
+   Native calling changes the communication protocol, not execution authority.
+   Each tool call validates exact arguments and serializes a bounded payload before
    any shell approval. Shell is denied without a trusted callback returning exactly
    `True`. Approval time consumes the trusted call/remaining-turn budget.
 4. A fresh scratch directory and `SeatbeltBackend` are created for each call.

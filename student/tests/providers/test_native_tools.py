@@ -17,7 +17,7 @@ TOOLS = [{'type': 'function', 'function': {
 }}]
 
 
-def reply(provider, *, call=True):
+def reply(provider, *, call=True, signature=None):
     if provider == 'groq':
         message = {'role': 'assistant', 'content': None if call else 'Files: note.txt'}
         if call:
@@ -27,6 +27,8 @@ def reply(provider, *, call=True):
                 'usage': {'prompt_tokens': 12, 'completion_tokens': 5, 'total_tokens': 17}}
     part = ({'functionCall': {'name': 'list_files', 'args': {'directory': '.', 'pattern': '*'}}}
             if call else {'text': 'Files: note.txt'})
+    if call and signature:
+        part['thoughtSignature'] = signature
     return {'candidates': [{'content': {'role': 'model', 'parts': [part]}, 'finishReason': 'STOP'}],
             'usageMetadata': {'promptTokenCount': 12, 'candidatesTokenCount': 5, 'totalTokenCount': 17}}
 
@@ -69,6 +71,25 @@ def test_native_call_and_linked_tool_history(provider, monkeypatch, mock_model_h
         assert any('function_call' in p for p in parts)
         assert any(p.get('function_response', {}).get('name') == 'list_files' for p in parts)
         assert 'note.txt' in json.dumps(parts)
+
+
+def test_gemini_thought_signature_survives_native_round_trip(monkeypatch, mock_model_http):
+    monkeypatch.setenv('GEMINI_API_KEY', 'fake')
+    signature = 'abc/+=' * 60
+    requests = mock_model_http(lambda request: httpx.Response(
+        200, json=reply('gemini', call=len(requests) == 1, signature=signature)))
+    client = create_model_client('gemini', model='gemini-2.5-flash')
+    first = client.generate([{'role': 'user', 'content': 'list'}],
+                            tools=TOOLS, max_output_tokens=30, timeout_seconds=3)
+    call = first.tool_calls[0]
+    client.generate([
+        {'role': 'user', 'content': 'list'},
+        {'role': 'assistant', 'content': None, 'tool_calls': [call.as_dict()]},
+        {'role': 'tool', 'tool_call_id': call.id, 'name': call.name, 'content': '{"ok":true}'},
+    ], tools=TOOLS, max_output_tokens=30, timeout_seconds=3)
+    body = json.loads(requests[1].content)
+    part = body['contents'][1]['parts'][0]
+    assert part['thoughtSignature'] == signature
 
 
 @pytest.mark.parametrize('provider', ['groq', 'gemini'])

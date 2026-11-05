@@ -6,7 +6,7 @@ import platform
 import pytest
 
 from agent_smith.loop.chat import ChatSession
-from agent_smith.loop.runner import ModelResponse
+from agent_smith.loop.runner import ModelResponse, ToolCall
 from agent_smith.tools.approval import TerminalApproval
 from agent_smith.tools.contracts import ToolContext
 from agent_smith.tools.workspace import WorkspaceToolDispatcher
@@ -20,11 +20,14 @@ class Model:
     def generate(self, messages, **kwargs):
         self.histories.append(messages)
         action = next(self.actions)
-        return ModelResponse(action if isinstance(action, str) else json.dumps(action), 1, 1)
+        if isinstance(action, ToolCall):
+            action = ToolCall(f'call_{len(self.histories)}', action.name, action.arguments)
+            return ModelResponse('', 1, 1, tool_calls=(action,))
+        return ModelResponse(action, 1, 1)
 
 
 def tool(name, **arguments):
-    return {'tool': name, 'arguments': arguments}
+    return ToolCall('pending', name, json.dumps(arguments))
 
 
 class TTY(io.StringIO):
@@ -33,7 +36,10 @@ class TTY(io.StringIO):
 
 
 @pytest.mark.skipif(platform.system() != 'Darwin', reason='native macOS Seatbelt only')
-def test_native_chat_writes_edit_denial_approval_and_honest_failure(tmp_path):
+def test_native_chat_writes_edit_denial_approval_and_honest_failure(tmp_path, monkeypatch):
+    # This long synthetic safety scenario tests seven actions, not the default
+    # session budget (covered separately). Native history includes full call IDs.
+    monkeypatch.setattr('agent_smith.loop.chat.MAX_INPUT_TOKENS', 20000)
     workspace = tmp_path / 'workspace'
     workspace.mkdir()
     (workspace / '.env').write_text('fixture-canary')
@@ -51,8 +57,8 @@ def test_native_chat_writes_edit_denial_approval_and_honest_failure(tmp_path):
         tool('read_file', filepath=str(outside), start_line=1, end_line=1),
         tool('read_file', filepath='.env', start_line=1, end_line=1),
         tool('write_file', filepath='.git/config', content='bad'),
-        'invalid JSON',
-        {'final': 'Previous writes remain; no rollback.'},
+        '',
+        'Previous writes remain; no rollback.',
     ])
     with WorkspaceToolDispatcher(ToolContext(workspace),
             approval_callback=TerminalApproval(answers, terminal)) as tools:
@@ -60,8 +66,8 @@ def test_native_chat_writes_edit_denial_approval_and_honest_failure(tmp_path):
         session = ChatSession(model, tools)
         result = session.send('perform actions')
         assert result.error == 'invalid_action'
-        observations = [json.loads(m['content'].removeprefix('Tool observation: '))
-                        for m in model.histories[-1] if m['content'].startswith('Tool observation: ')]
+        observations = [json.loads(m['content']) for m in model.histories[-1]
+                        if m['role'] == 'tool']
         assert observations[0]['ok'] and observations[1]['ok']
         assert observations[2] == {'ok': False, 'error': 'approval_denied'}
         assert observations[3]['ok']
@@ -79,7 +85,7 @@ def test_native_chat_writes_edit_denial_approval_and_honest_failure(tmp_path):
 
 @pytest.mark.skipif(platform.system() != 'Darwin', reason='native macOS Seatbelt only')
 def test_native_noninteractive_shell_denied_without_reading_stdin(tmp_path):
-    model = Model([tool('run_shell', command='touch forbidden'), {'final': 'denied'}])
+    model = Model([tool('run_shell', command='touch forbidden'), 'denied'])
     with WorkspaceToolDispatcher(ToolContext(tmp_path)) as tools:
         assert tools.check_ready()
         assert ChatSession(model, tools).send('shell').success

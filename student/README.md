@@ -62,9 +62,11 @@ REPL accepts questions at `agent>`:
 
 History contains questions, answers, and tool observations, is bounded, and is not
 saved to disk. Failed turns leave history unchanged but retain consumed usage and
-filesystem effects. A malformed model response may yield `invalid_action`; rephrase
-or reset. There are no automatic provider retries. Reset keeps the same tool runtime
-snapshot; restart the application to stage a fresh one.
+filesystem effects. An empty or structurally malformed model response may yield
+`invalid_action`; rephrase or reset. Tool argument errors are returned to the model
+as linked tool results; tools are never executed from JSON printed in answer text.
+There are no automatic provider retries. Reset keeps the same tool runtime snapshot;
+restart the application to stage a fresh one.
 
 ## Security scope
 
@@ -110,8 +112,26 @@ provider's literal names, including namespaces such as `openai/gpt-oss-120b`.
 - Raw usage fields are validated before SDK coercion. Completion totals are
   normalized so reasoning tokens count exactly once. Missing or invalid usage
   returns `invalid_usage`; malformed responses return `invalid_response`.
-- Chat requests JSON output for both providers. The benchmark loop's model port
-  can request plain text. JSON support still depends on the selected model.
+- Chat uses native function calling for both providers: explicit tool schemas,
+  assistant `tool_calls`, and linked `tool` results. Ordinary text is a final
+  answer, not executable JSON. Choose a model that supports function calling;
+  unsupported requests fail without a legacy-protocol fallback. Chat does not
+  force JSON output; the benchmark text-generation interface is unchanged.
+- Read-only mode advertises only read/list/search; sandboxed mode advertises all
+  six tools. Calls are validated and executed sequentially, at most 16 per model
+  turn, sharing the remaining deadline. Invalid/duplicate call IDs reject the
+  batch before execution. Unknown tools and invalid arguments produce error
+  results. Native calls do not bypass sandbox admission or shell approval.
+- Native history preserves tool IDs (including Gemini SDK thought signatures).
+  Failed turns discard history but keep consumed usage and filesystem effects;
+  they do not automatically replay mutations. The existing session-wide 6,000
+  input / 1,500 output-token limits and 120-second per-prompt deadline remain.
+  Conservative input preflight includes tool schemas and full serialized history,
+  so a session can reach `input_token_limit` before the next request. Use `/reset`
+  to clear history/usage, not filesystem changes.
+- The pinned SDK's optional MCP gateway is explicitly skipped for these local
+  function tools. The application, not an SDK agent or gateway, executes tools.
+  No new dependency is required.
 - SDK development-mode `.env` loading and verbose prompt/error logging are
   disabled. The CLI retains its own environment/`.env` key-loading behavior.
   Bundled model metadata avoids a separate pricing-metadata download.

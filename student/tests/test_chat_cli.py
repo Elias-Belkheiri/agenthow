@@ -13,9 +13,9 @@ def test_load_api_key_reads_dotenv_without_overriding_environment(monkeypatch, t
 
 def test_cli_uses_readonly_runner_and_prints_final_answer(monkeypatch, tmp_path, capsys):
     class Model:
-        def generate(self, messages, *, max_output_tokens, timeout_seconds):
+        def generate(self, messages, *, tools, max_output_tokens, timeout_seconds):
             return type('Response', (), {
-                'text': '{"final":"ok"}', 'input_tokens': 1,
+                'text': 'ok', 'input_tokens': 1, 'tool_calls': (),
                 'output_tokens': 1, 'reasoning_tokens': 0,
             })()
 
@@ -55,6 +55,7 @@ def sandbox_cli_fakes(monkeypatch, *, ready=True, error=False):
 
     class Tools:
         system_guidance = 'sandbox fake'
+        tool_definitions = []
 
         def __init__(self, context, *, approval_callback):
             self.callback = approval_callback
@@ -71,7 +72,7 @@ def sandbox_cli_fakes(monkeypatch, *, ready=True, error=False):
     class Model:
         def generate(self, messages, **kwargs):
             events.append('request')
-            return ModelResponse('{"final":"ok"}', 1, 1)
+            return ModelResponse('ok', 1, 1)
 
     monkeypatch.setattr('agent_chat.WorkspaceToolDispatcher', Tools)
     monkeypatch.setattr('agent_chat.load_api_key', lambda *a: 'fake')
@@ -135,7 +136,7 @@ def test_unsupported_platform_never_requests_provider_or_falls_back(monkeypatch,
 def test_sandbox_one_shot_actual_dispatcher_denies_shell(monkeypatch, tmp_path, capsys):
     import platform
     import pytest
-    from agent_smith.loop.runner import ModelResponse
+    from agent_smith.loop.runner import ModelResponse, ToolCall
     if platform.system() != 'Darwin':
         pytest.skip('native macOS Seatbelt only')
     calls = []
@@ -143,8 +144,10 @@ def test_sandbox_one_shot_actual_dispatcher_denies_shell(monkeypatch, tmp_path, 
     class Model:
         def generate(self, messages, **kwargs):
             calls.append(messages)
-            return ModelResponse('{"tool":"run_shell","arguments":{"command":"touch forbidden"}}'
-                                 if len(calls) == 1 else '{"final":"denied"}', 1, 1)
+            if len(calls) == 1:
+                return ModelResponse('', 1, 1, tool_calls=(
+                    ToolCall('call_1', 'run_shell', '{"command":"touch forbidden"}'),))
+            return ModelResponse('denied', 1, 1)
 
     monkeypatch.setattr('agent_chat.load_api_key', lambda *a: 'fake')
     monkeypatch.setattr('agent_chat.create_model_client', lambda *a, **kw: Model())

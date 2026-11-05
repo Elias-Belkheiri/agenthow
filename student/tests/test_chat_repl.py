@@ -1,5 +1,3 @@
-import json
-
 import pytest
 
 from agent_chat import main
@@ -12,7 +10,7 @@ def setup_model(monkeypatch):
     class Model:
         def generate(self, messages, **kwargs):
             histories.append(messages)
-            return ModelResponse(json.dumps({'final': 'answer'}), 10, 4)
+            return ModelResponse('answer', 10, 4)
 
     monkeypatch.setattr('agent_chat.create_model_client', lambda *a, **kw: Model())
     monkeypatch.setattr('agent_chat.load_api_key', lambda *a: 'fake')
@@ -55,7 +53,7 @@ def test_repl_continues_after_provider_error(monkeypatch, tmp_path, capsys):
             self.calls += 1
             if self.calls == 1:
                 raise ProviderError('http_429')
-            return ModelResponse('{"final":"recovered"}', 1, 1)
+            return ModelResponse('recovered', 1, 1)
 
     monkeypatch.setattr('agent_chat.create_model_client', lambda *a, **kw: Model())
     monkeypatch.setattr('agent_chat.load_api_key', lambda *a: 'fake')
@@ -74,6 +72,7 @@ def test_sandbox_repl_callback_and_close(monkeypatch, tmp_path, capsys, ending):
 
     class Tools:
         system_guidance = 'sandbox test'
+        tool_definitions = []
 
         def __init__(self, context, *, approval_callback):
             assert isinstance(approval_callback, TerminalApproval)

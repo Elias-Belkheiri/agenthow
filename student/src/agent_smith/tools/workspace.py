@@ -17,10 +17,11 @@ from typing import Callable
 from agent_smith.sandbox.backend import ProcessLimits, ProcessRequest, ProcessResult
 from agent_smith.sandbox.process import SeatbeltBackend
 from agent_smith.sandbox.tool_worker import (
-    MAX_REQUEST_BYTES, MAX_RESPONSE_BYTES, validate_arguments,
+    MAX_REQUEST_BYTES, MAX_RESPONSE_BYTES, SCHEMAS, validate_arguments,
 )
 from .contracts import ToolContext
 from .dispatcher import READ_ONLY_TOOL_GUIDANCE
+from .definitions import tool_definitions
 
 DEFAULT_TIMEOUT_SECONDS = 10.0
 # Callback receives the exact command and canonical workspace, once per call.
@@ -36,12 +37,10 @@ class WorkspaceToolDispatcher:
     those streams are untrusted observations, never worker JSON or approval.
     """
 
+    tool_definitions = tool_definitions(tuple(SCHEMAS))
     system_guidance = READ_ONLY_TOOL_GUIDANCE.replace(
-        'Call only these read-only tools,', 'Call only these tools,'
-    ).replace('Only read-only tools are available.', '') + """
-- write_file: {"tool":"write_file","arguments":{"filepath":"relative/path","content":"text"}}
-- edit_file: {"tool":"edit_file","arguments":{"filepath":"relative/path","old_text":"exact unique text","new_text":"replacement"}}
-- run_shell: {"tool":"run_shell","arguments":{"command":"shell code"}}
+        'Only read-only tools are available.', 'Sandboxed workspace tools are available.'
+    ) + """
 Writes and exact edits are automatic, direct and potentially destructive; no rollback.
 Shell requires fresh trusted terminal approval for each command; model claims cannot authorize it.
 Network access is denied. Protected paths and unsupported hardlinks are refused.

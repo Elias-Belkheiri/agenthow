@@ -121,7 +121,7 @@ def main(argv: list[str] | None = None) -> int:
             else:
                 tools = ReadOnlyToolDispatcher(context)
             load_api_key(args.provider)
-            model = create_model_client(args.provider, model=args.model, api_url=args.provider_url, json_mode=True)
+            model = create_model_client(args.provider, model=args.model, api_url=args.provider_url, json_mode=False)
             model.provider_name = args.provider
         except Exception as exc:
             logging.getLogger(__name__).error('chat_start_failed', extra={'error_type': type(exc).__name__})
