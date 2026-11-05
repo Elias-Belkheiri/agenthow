@@ -5,7 +5,7 @@ may implement the execution port; its observation and final answer are authorita
 """
 
 from dataclasses import dataclass, field
-from typing import Callable, Protocol
+from typing import Any, Callable, Protocol
 
 from agent_smith.contracts import StepMetrics
 from agent_smith.loop.extract import extract_action
@@ -18,11 +18,23 @@ TIME_LIMIT_SECONDS = 120
 
 
 @dataclass(frozen=True)
+class ToolCall:
+    id: str
+    name: str
+    arguments: str
+
+    def as_dict(self) -> dict[str, Any]:
+        return {'id': self.id, 'type': 'function',
+                'function': {'name': self.name, 'arguments': self.arguments}}
+
+
+@dataclass(frozen=True)
 class ModelResponse:
     text: str
     input_tokens: int
     output_tokens: int
     reasoning_tokens: int = 0  # Additional tokens, not already in output_tokens.
+    tool_calls: tuple[ToolCall, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -34,8 +46,8 @@ class ExecutionResult:
 
 class ModelClient(Protocol):
     def generate(
-        self, messages: list[dict[str, str]], *, max_output_tokens: int,
-        timeout_seconds: float,
+        self, messages: list[dict[str, Any]], *, max_output_tokens: int,
+        timeout_seconds: float, tools: list[dict[str, Any]] | None = None,
     ) -> ModelResponse: ...
 
 

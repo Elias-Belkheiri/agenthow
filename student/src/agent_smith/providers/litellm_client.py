@@ -3,8 +3,10 @@
 LiteLLM owns provider wire formats; the application owns loops, tools and budgets.
 """
 
+from copy import deepcopy
 import logging
 import os
+from typing import Any
 
 import httpx
 
@@ -17,7 +19,7 @@ import litellm
 from litellm.llms.custom_httpx.http_handler import HTTPHandler
 from openai import OpenAI
 
-from agent_smith.loop.runner import ModelResponse
+from agent_smith.loop.runner import ModelResponse, ToolCall
 from .contracts import ProviderError
 
 
@@ -123,8 +125,8 @@ class LiteLLMClient:
         except (ValueError, TypeError, AttributeError):
             raise ProviderError('invalid_response') from None
 
-    def generate(self, messages: list[dict[str, str]], *, max_output_tokens: int,
-                 timeout_seconds: float) -> ModelResponse:
+    def generate(self, messages: list[dict[str, Any]], *, max_output_tokens: int,
+                 timeout_seconds: float, tools: list[dict[str, Any]] | None = None) -> ModelResponse:
         if not self._api_key:
             raise ProviderError('missing_credentials')
         if not self.model:
@@ -160,7 +162,7 @@ class LiteLLMClient:
                     api_key=self._api_key,
                     api_base=self._api_base,
                     client=client,
-                    messages=[dict(message) for message in messages],
+                    messages=deepcopy(messages),
                     max_tokens=max_output_tokens,
                     timeout=timeout_seconds,
                     num_retries=0,
@@ -168,14 +170,30 @@ class LiteLLMClient:
                     stream=False,
                     caching=False,
                     drop_params=False,
-                    **({'response_format': {'type': 'json_object'}} if self.json_mode else {}),
+                    # Pinned SDK otherwise imports its optional MCP gateway for
+                    # all tools. Only our trusted parent dispatches local tools.
+                    _skip_mcp_handler=True,
+                    **({'tools': deepcopy(tools), 'tool_choice': 'auto'} if tools else {}),
+                    **({'response_format': {'type': 'json_object'}}
+                       if self.json_mode and tools is None else {}),
                 )
         except Exception as exc:
             # Never attach the SDK exception: its text may contain credentials.
             raise ProviderError(_error_code(exc)) from None
 
         try:
-            text = response.choices[0].message.content
+            message = response.choices[0].message
+            text = message.content
+            calls = []
+            raw_calls = getattr(message, 'tool_calls', None)
+            if raw_calls is not None and not isinstance(raw_calls, list):
+                raise ProviderError('invalid_response')
+            for call in raw_calls or []:
+                if (call.type != 'function' or not isinstance(call.id, str) or not call.id
+                        or not isinstance(call.function.name, str) or not call.function.name
+                        or not isinstance(call.function.arguments, str)):
+                    raise ProviderError('invalid_response')
+                calls.append(ToolCall(call.id, call.function.name, call.function.arguments))
             # Gemini normalizes empty text to None. Let the loop reject the
             # empty action after recording its reported token consumption.
             if text is None:
@@ -200,7 +218,7 @@ class LiteLLMClient:
                 raise ProviderError('invalid_usage')
             # LiteLLM includes reasoning in completion_tokens for both providers.
             return ModelResponse(text, input_tokens, completion_tokens - reasoning_tokens,
-                                 reasoning_tokens)
+                                 reasoning_tokens, tuple(calls))
         except ProviderError:
             raise
         except (AttributeError, TypeError, KeyError, IndexError):
