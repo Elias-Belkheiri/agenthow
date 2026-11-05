@@ -1,0 +1,144 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="An architectural decision guide to sandboxing model-generated Python in Agent Smith.">
+  <title>Where should the code run? — Agent Smith sandbox field guide</title>
+  <style>
+    :root { color-scheme: light; --paper:#f4f0e8; --white:#fffdf9; --ink:#192427; --muted:#5c6867; --line:#cdd2cb; --blue:#245c69; --blue-soft:#e1ebea; --orange:#bd522c; --orange-soft:#f6e5d8; --green:#456653; --mono:ui-monospace,SFMono-Regular,Consolas,monospace; --serif:Georgia,"Times New Roman",serif; --sans:"Trebuchet MS","Gill Sans",sans-serif; }
+    * { box-sizing:border-box; }
+    html { scroll-behavior:smooth; }
+    body { margin:0; background:var(--paper); color:var(--ink); font-family:var(--sans); line-height:1.55; }
+    a { color:var(--blue); text-underline-offset:3px; }
+    a:focus-visible, button:focus-visible { outline:3px solid var(--orange); outline-offset:4px; }
+    .wrap { max-width:1240px; padding:0 clamp(20px,4vw,60px); margin:auto; }
+    .eyebrow, .kicker, .label, .number, .pill, .diagram, .stat, .source { font-family:var(--mono); }
+    .eyebrow, .kicker { text-transform:uppercase; letter-spacing:.12em; font-size:.72rem; font-weight:700; }
+    .topbar { border-bottom:1px solid var(--line); }
+    .topbar .wrap { display:flex; align-items:center; justify-content:space-between; gap:20px; min-height:58px; }
+    .brand { text-decoration:none; color:var(--ink); font-weight:800; letter-spacing:.04em; }
+    .topbar span { font-family:var(--mono); font-size:.72rem; color:var(--muted); }
+    .hero { padding:clamp(52px,8vw,116px) 0 56px; }
+    .hero-grid { display:grid; grid-template-columns:minmax(0,1.1fr) minmax(310px,.9fr); gap:clamp(30px,5vw,76px); align-items:center; }
+    .hero .kicker { color:var(--orange); }
+    h1,h2,h3,p { margin-top:0; }
+    h1,h2 { font-family:var(--serif); font-weight:500; letter-spacing:-.04em; }
+    h1 { font-size:clamp(3.3rem,7vw,7rem); line-height:.98; margin:16px 0 27px; max-width:770px; }
+    h2 { font-size:clamp(2.2rem,4vw,3.8rem); line-height:1.08; margin-bottom:20px; }
+    h3 { font-size:1.3rem; line-height:1.3; margin-bottom:9px; }
+    .lead { font-size:clamp(1.1rem,1.5vw,1.35rem); line-height:1.5; max-width:610px; color:#384644; }
+    .hero-note { border-left:3px solid var(--orange); padding-left:18px; font-size:.9rem; color:var(--muted); max-width:550px; }
+    .diagram { background:var(--ink); color:#e9f0ea; padding:29px; border-radius:2px; position:relative; box-shadow:14px 14px 0 var(--blue-soft); font-size:.85rem; }
+    .diagram::before { content:"TRUST BOUNDARY / NOT YET BUILT"; display:block; color:#a5c6c8; font-size:.68rem; letter-spacing:.12em; margin-bottom:28px; }
+    .flow { display:grid; grid-template-columns:1fr auto 1fr; gap:10px; align-items:center; }
+    .node { border:1px solid #627575; padding:15px 12px; min-height:72px; }
+    .node strong { display:block; color:#fff; font-size:.78rem; margin-bottom:5px; }
+    .node small { display:block; color:#b9c8c3; font-family:var(--sans); font-size:.75rem; }
+    .node.locked { border-color:#d78d67; }
+    .arrow { color:#e7aa83; font-size:1.2rem; }
+    .return { border-top:1px dashed #627575; padding-top:17px; margin-top:23px; color:#d4e1d8; }
+    .return em { color:#e7aa83; font-style:normal; }
+    .status { background:var(--white); border-top:1px solid var(--line); border-bottom:1px solid var(--line); }
+    .status-grid { display:grid; grid-template-columns:repeat(3,1fr); }
+    .status-grid > div { padding:25px 27px; border-right:1px solid var(--line); }
+    .status-grid > div:first-child { padding-left:0; }
+    .status-grid > div:last-child { border:0; }
+    .stat { display:block; font-size:.67rem; color:var(--orange); letter-spacing:.12em; text-transform:uppercase; margin-bottom:6px; }
+    .status strong { display:block; font-size:1rem; }
+    .status p { color:var(--muted); font-size:.83rem; margin:5px 0 0; }
+    .intro { padding:82px 0 52px; display:grid; grid-template-columns:minmax(0,1.1fr) minmax(250px,.9fr); gap:12%; }
+    .intro p { max-width:690px; font-size:1.06rem; }
+    .rule { align-self:start; padding:20px 22px; background:var(--orange-soft); border-left:3px solid var(--orange); }
+    .rule strong { display:block; margin-bottom:6px; }
+    .rule p { font-size:.9rem; margin:0; }
+    .layout { display:grid; grid-template-columns:214px minmax(0,1fr); gap:clamp(35px,5vw,75px); align-items:start; }
+    .sidebar { position:sticky; top:22px; padding-bottom:25px; }
+    .sidebar .label { color:var(--muted); font-size:.7rem; text-transform:uppercase; letter-spacing:.12em; }
+    .sidebar nav { display:grid; gap:2px; margin-top:13px; border-top:1px solid var(--line); padding-top:12px; }
+    .sidebar button { display:block; text-align:left; width:100%; border:0; border-left:2px solid transparent; padding:10px 10px; background:transparent; color:var(--muted); font:inherit; font-size:.83rem; cursor:pointer; }
+    .sidebar button:hover, .sidebar button[aria-current="true"] { color:var(--ink); border-left-color:var(--orange); background:var(--white); }
+    .sidebar button b { color:var(--orange); font-family:var(--mono); font-size:.7rem; margin-right:9px; }
+    .chapter { scroll-margin-top:22px; border-top:1px solid var(--line); padding:33px 0 45px; }
+    .chapter:first-child { border-top:3px solid var(--ink); }
+    .chapter-title { display:flex; gap:18px; align-items:baseline; }
+    .number { color:var(--orange); font-size:.85rem; white-space:nowrap; }
+    .chapter-title h3 { font-family:var(--serif); font-size:clamp(1.75rem,3vw,2.5rem); font-weight:500; letter-spacing:-.035em; }
+    .chapter-lead { font-size:1.03rem; max-width:790px; }
+    .details { display:grid; grid-template-columns:1fr 1fr; gap:30px; margin-top:23px; }
+    .details > div { border-top:1px solid var(--line); padding-top:15px; }
+    .label { color:var(--blue); font-size:.72rem; text-transform:uppercase; letter-spacing:.07em; display:block; margin-bottom:8px; }
+    .details p { font-size:.89rem; color:#41504f; margin:0; }
+    .fit { margin-top:22px; padding:12px 16px; background:var(--blue-soft); font-size:.87rem; }
+    .fit strong { color:var(--blue); }
+    .section-wide { padding:90px 0; }
+    .section-wide.dark { background:var(--ink); color:#f0f0e8; }
+    .dark .kicker { color:#e8a683; }
+    .dark h2 { max-width:700px; }
+    .controls { display:grid; grid-template-columns:repeat(3,1fr); gap:1px; background:#516160; margin-top:32px; border:1px solid #516160; }
+    .controls > div { background:var(--ink); padding:25px 22px; }
+    .controls b { display:block; color:#f5f5ed; margin-bottom:8px; }
+    .controls p { font-size:.87rem; color:#bdcbc7; margin:0; }
+    .decision { padding:95px 0; }
+    .decision-grid { display:grid; grid-template-columns:1fr 1fr; gap:18px; margin:32px 0; }
+    .decision-grid article { background:var(--white); padding:30px; border:1px solid var(--line); }
+    .decision-grid article:last-child { border-top:4px solid var(--blue); }
+    .decision-grid article:first-child { border-top:4px solid var(--orange); }
+    .pill { font-size:.66rem; letter-spacing:.09em; text-transform:uppercase; color:var(--muted); }
+    .decision-grid h3 { font-family:var(--serif); font-size:1.8rem; font-weight:500; margin:13px 0; }
+    .decision-grid p, .decision-grid li { font-size:.91rem; color:#42514f; }
+    .decision-grid ul { padding-left:20px; margin:12px 0 0; }
+    .recommendation { padding:28px 30px; background:var(--blue-soft); border-left:4px solid var(--blue); max-width:940px; }
+    .recommendation p { margin:5px 0 0; }
+    .source { font-size:.75rem; color:var(--muted); padding:28px 0 54px; border-top:1px solid var(--line); }
+    .source a { overflow-wrap:anywhere; }
+    @media (max-width:850px) { .hero-grid,.intro { grid-template-columns:1fr; gap:34px; } .layout { grid-template-columns:1fr; } .sidebar { position:static; } .sidebar nav { display:flex; overflow-x:auto; padding-bottom:8px; } .sidebar button { min-width:max-content; } }
+    @media (max-width:620px) { .status-grid,.details,.decision-grid { grid-template-columns:1fr; } .status-grid > div,.status-grid > div:first-child { padding:15px 0; border-right:0; border-bottom:1px solid var(--line); } .controls { grid-template-columns:1fr; } .hero { padding-top:52px; } .flow { grid-template-columns:1fr; } .arrow { transform:rotate(90deg); justify-self:center; line-height:1; } .diagram { box-shadow:7px 7px 0 var(--blue-soft); } .chapter-title { gap:12px; } }
+    @media (prefers-reduced-motion:reduce) { html { scroll-behavior:auto; } }
+    @media print { :root { --paper:#fff; --white:#fff; --ink:#000; --muted:#333; --line:#aaa; } body { background:#fff; color:#000; } .topbar,.sidebar { display:none; } .hero,.intro,.section-wide,.decision { padding:18px 0; } .hero-grid,.intro,.layout { display:block; } .diagram { box-shadow:none; color:#fff; margin:20px 0; } .dark { print-color-adjust:exact; } .chapter { break-inside:avoid; } .status-grid,.details,.decision-grid { grid-template-columns:repeat(2,1fr); } }
+  </style>
+</head>
+<body>
+  <header class="topbar"><div class="wrap"><a class="brand" href="#top">AGENT SMITH / FIELD NOTES</a><span>ARCHITECTURE BRIEF&nbsp; · &nbsp;01</span></div></header>
+  <main id="top">
+    <section class="hero wrap" aria-labelledby="page-title"><div class="hero-grid">
+      <div><span class="kicker">The execution boundary</span><h1 id="page-title">Where should the code run?</h1><p class="lead">Eight ways to handle model-generated Python—from not running it at all to giving it a separate machine. The key question is not whether code runs in another <em>process</em>, but what it can do if the restrictions fail.</p><p class="hero-note">This is a design guide, not a security certification. Agent Smith has a fake-tested loop; its real sandbox and providers are not implemented.</p></div>
+      <div class="diagram" role="img" aria-label="Diagram: model action enters a policy gate, then an isolated worker; only a trusted observation returns to the loop."><div class="flow"><div class="node"><strong>01 / MODEL</strong><small>Untrusted Python action</small></div><span class="arrow" aria-hidden="true">→</span><div class="node locked"><strong>02 / POLICY</strong><small>Imports · paths · limits</small></div></div><div class="flow" style="margin-top:12px"><div class="node locked"><strong>03 / WORKER</strong><small>OS or container boundary</small></div><span class="arrow" aria-hidden="true">→</span><div class="node"><strong>04 / BROKER</strong><small>Trusted tools, later MCP</small></div></div><div class="return"><em>← observation</em> &nbsp; stdout · errors · final_answer, captured by the trusted runner</div></div>
+    </div></section>
+    <div class="status"><div class="wrap status-grid"><div><span class="stat">Built</span><strong>Tools + fake-tested loop</strong><p>No generated action is executed in the current loop tests.</p></div><div><span class="stat">Not built</span><strong>Real sandbox + providers</strong><p>No security test pass or live MBPP execution is claimed.</p></div><div><span class="stat">Next gate</span><strong>Choose + prove isolation</strong><p>Only then connect an executor to the model loop.</p></div></div></div>
+    <section class="intro wrap"><div><span class="kicker">Threat model</span><h2>Assume the code wants out.</h2><p>Generated Python might be buggy, infinite, or actively hostile. It can try to import forbidden modules, follow a symlink to a secret, open a socket, fork a process, exhaust memory, or introspect Python objects to recover powerful capabilities. A test that blocks <code>import os</code> does not prove that every route to the operating system is closed.</p></div><aside class="rule"><strong>The PDF's requirement</strong><p>Configured import and directory allowlists, no network, restricted builtins, hard code timeout and memory limits. Its security mechanisms must use standard Python libraries and builtins; it does not mandate one isolation topology. Whether an external container runtime is permissible and installed in evaluation must be confirmed.</p></aside></section>
+    <div class="wrap layout"><aside class="sidebar"><span class="label">Approach index</span><nav aria-label="Sandbox approaches"><button type="button" data-target="approach-1" aria-current="true"><b>01</b> Do not execute</button><button type="button" data-target="approach-2"><b>02</b> In-process filtering</button><button type="button" data-target="approach-3"><b>03</b> Python subprocess</button><button type="button" data-target="approach-4"><b>04</b> OS sandbox</button><button type="button" data-target="approach-5"><b>05</b> Container</button><button type="button" data-target="approach-6"><b>06</b> VM / microVM</button><button type="button" data-target="approach-7"><b>07</b> Remote runner</button><button type="button" data-target="approach-8"><b>08</b> WASM / WASI</button></nav></aside>
+      <div aria-label="Approach details">
+        <article id="approach-1" class="chapter"><div class="chapter-title"><span class="number">01 / ZERO EXECUTION</span><h3>Parse, inspect, and stop.</h3></div><p class="chapter-lead">Accept a fenced Python action and check its structure, but never call an executor. There is no runtime to escape because the code never runs.</p><div class="details"><div><span class="label">Strength</span><p>A reliable development gate while writing extraction, accounting and control flow. No external runtime dependency.</p></div><div><span class="label">Limit</span><p>Cannot run MBPP tests, inspect dynamic behavior or produce actual sandbox observations. Syntax checks do not prove a solution works.</p></div></div><div class="fit"><strong>Agent Smith now:</strong> fake executors return fixed observations; this is the only mode currently proven by loop tests.</div></article>
+        <article id="approach-2" class="chapter"><div class="chapter-title"><span class="number">02 / SAME PROCESS</span><h3>Restrict names and syntax.</h3></div><p class="chapter-lead">Run Python in the agent process with a small globals dictionary, selected builtins, AST checks and import wrappers.</p><div class="details"><div><span class="label">Strength</span><p>Fast and easy to prototype. Useful as an additional policy layer or for cooperative code.</p></div><div><span class="label">Limit</span><p>Code shares the agent's memory and privileges. Introspection, native modules or implementation mistakes can recover capabilities; an infinite loop can seize the agent. Not a hostile-code boundary.</p></div></div><div class="fit"><strong>Agent Smith fit:</strong> policy checks may supplement isolation, never replace it.</div></article>
+        <article id="approach-3" class="chapter"><div class="chapter-title"><span class="number">03 / SEPARATE PROCESS</span><h3>Give Python its own worker.</h3></div><p class="chapter-lead">Start a child interpreter with restricted builtins and imports. Send actions through a narrow channel; set resource limits where available and kill the worker on timeout.</p><div class="details"><div><span class="label">Strength</span><p>Agent survives most worker crashes; execution state and timeouts are easier to control. Standard-library implementation can match the local CLI.</p></div><div><span class="label">Limit</span><p>Normally inherits the host user's file and network privileges. Python-level hooks and allowlists can be bypassed by hostile code; platform resource limits vary. A subprocess alone is not strong isolation.</p></div></div><div class="fit"><strong>Agent Smith fit:</strong> chosen as the minimum architecture's process boundary, explicitly best-effort until backed by OS controls and tests.</div></article>
+        <article id="approach-4" class="chapter"><div class="chapter-title"><span class="number">04 / KERNEL POLICY</span><h3>Let the OS enforce denial.</h3></div><p class="chapter-lead">Put the worker under OS-level filesystem, network, process and resource restrictions. On Linux these may involve namespaces, Landlock, seccomp and cgroups; mechanisms and privilege requirements differ on macOS and Windows.</p><div class="details"><div><span class="label">Strength</span><p>Restrictions survive many Python-level bypasses because the kernel rejects prohibited operations.</p></div><div><span class="label">Limit</span><p>Complex, platform-dependent setup. One primitive does not cover everything: for example, resource limits do not deny network, and path checks do not isolate processes. Must fail closed if unavailable.</p></div></div><div class="fit"><strong>Agent Smith fit:</strong> best direction for hostile code if the actual evaluator OS exposes usable mechanisms.</div></article>
+        <article id="approach-5" class="chapter"><div class="chapter-title"><span class="number">05 / CONTAINER</span><h3>Package the OS boundary.</h3></div><p class="chapter-lead">Run each task in a hardened container with no network, only explicitly mounted workspaces, a read-only root, dropped capabilities, process limits, and CPU/RAM quotas.</p><div class="details"><div><span class="label">Strength</span><p>A practical way to combine several kernel controls and reset state per run. Clear path to a narrow workspace and disposable scratch area.</p></div><div><span class="label">Limit</span><p>Requires an available runtime and correct image/mount/daemon configuration. Containers share a host kernel and are not automatically secure; a mounted Docker socket is especially dangerous.</p></div></div><div class="fit"><strong>Agent Smith fit:</strong> attractive if Docker/Podman is allowed and present in the grading environment; this is not established yet.</div></article>
+        <article id="approach-6" class="chapter"><div class="chapter-title"><span class="number">06 / SEPARATE KERNEL</span><h3>Use a VM or microVM.</h3></div><p class="chapter-lead">Start the worker inside a guest with its own kernel; exchange input and results over a narrow host–guest channel.</p><div class="details"><div><span class="label">Strength</span><p>Stronger separation from the host than a shared-kernel container and a clean disposable environment.</p></div><div><span class="label">Limit</span><p>Provisioning, images, startup time and memory overhead are substantial for a 120-second MBPP task. MicroVM availability is platform-specific.</p></div></div><div class="fit"><strong>Agent Smith fit:</strong> defensible for a production hostile-code service, likely disproportionate for this local first milestone.</div></article>
+        <article id="approach-7" class="chapter"><div class="chapter-title"><span class="number">07 / SEPARATE HOST</span><h3>Send execution to a remote runner.</h3></div><p class="chapter-lead">A dedicated machine or managed code-execution service receives actions and returns bounded observations.</p><div class="details"><div><span class="label">Strength</span><p>Separates the developer host from execution, centralizes isolation and can scale many jobs.</p></div><div><span class="label">Limit</span><p>Introduces deployment, credentials, latency, network availability and data-transfer concerns. The remote runner still needs a sandbox internally.</p></div></div><div class="fit"><strong>Agent Smith fit:</strong> poor match for a self-contained local evaluator unless a runner is supplied.</div></article>
+        <article id="approach-8" class="chapter"><div class="chapter-title"><span class="number">08 / CAPABILITY RUNTIME</span><h3>Run Python atop WASM/WASI.</h3></div><p class="chapter-lead">Use a Python runtime compiled to WebAssembly and expose only explicit filesystem, clock or network capabilities.</p><div class="details"><div><span class="label">Strength</span><p>Capability-based design with an execution engine distinct from native CPython; potentially strong containment for supported workloads.</p></div><div><span class="label">Limit</span><p>Python 3.10 behavior, native packages, process APIs, memory limits and later MCP integration may diverge. The runtime itself is an extra dependency.</p></div></div><div class="fit"><strong>Agent Smith fit:</strong> a research alternative, not a drop-in answer to the evaluator's Python environment.</div></article>
+      </div>
+    </div>
+    <section class="section-wide dark"><div class="wrap"><span class="kicker">Regardless of topology</span><h2>What must be tested before the first real action?</h2><div class="controls"><div><b>01 / Imports + builtins</b><p>Only configured modules; dangerous entry points denied; test indirect access, not just simple imports.</p></div><div><b>02 / Files + symlinks</b><p>Allowed directories as seen inside the worker; outside paths and escaping symlinks denied, including writes.</p></div><div><b>03 / Network + processes</b><p>Outbound and inbound connections blocked. No unrestricted child processes or host-control sockets.</p></div><div><b>04 / Time + RAM</b><p>Terminate runaway code and excessive allocation, with parent recovery and descendant cleanup.</p></div><div><b>05 / Output + errors</b><p>Bound stdout/stderr and observations; report partial output on timeout. Propagate SystemExit and KeyboardInterrupt correctly.</p></div><div><b>06 / Trusted bridge</b><p>Keep final_answer in the sandbox namespace. Later MCP tools use a trusted broker, not direct generated-code network access.</p></div></div></div></section>
+    <section class="decision wrap"><span class="kicker">The unresolved architecture choice</span><h2>Where to draw the first real boundary</h2><p class="lead">These are implementation choices, not two equivalent security guarantees.</p><div class="decision-grid"><article><span class="pill">Option A · original minimum plan</span><h3>Restricted subprocess</h3><p>Build the standard-library child worker, resource limits and policy checks first; keep its limitation explicit.</p><ul><li>Smallest dependency footprint.</li><li>Can validate loop/worker communication.</li><li>Cannot honestly promise hostile-code isolation from Python filtering alone.</li></ul></article><article><span class="pill">Option B · stronger gate</span><h3>OS or container enforcement</h3><p>Require kernel-enforced filesystem and network denial around the restricted worker before live model output runs.</p><ul><li>More defensible security boundary.</li><li>Needs verified evaluator OS, privileges and runtime availability.</li><li>Should fail closed if required enforcement is absent.</li></ul></article></div><div class="recommendation"><strong>Recommended direction</strong><p>Combine the narrow Python worker interface with OS-enforced isolation. Confirm exam runtime and PDF policy first; specify the exact mechanism and write escape tests. Until those pass, keep the fake executor. No decision or implementation is being claimed by this page.</p></div></section>
+  </main>
+  <footer class="wrap source">Source of requirements: <a href="../agentsmith.pdf">agentsmith.pdf</a> (§§ V.1–V.2, VI), <a href="specs/0001-stack-and-architecture.md">accepted architecture</a>, <a href="plans/2026-10-14-agent-smith-first-milestone.md">first-milestone plan</a>. This guide distinguishes requirements, design options, and implementation status; it is not evidence that sandbox security tests have passed.</footer>
+  <script>
+    (() => {
+      const buttons = [...document.querySelectorAll('[data-target]')];
+      const sections = buttons.map(button => document.getElementById(button.dataset.target)).filter(Boolean);
+      for (const button of buttons) button.addEventListener('click', () => {
+        const section = document.getElementById(button.dataset.target);
+        if (section) section.scrollIntoView({ behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth', block: 'start' });
+      });
+      if (!('IntersectionObserver' in window)) return;
+      const observer = new IntersectionObserver(entries => {
+        for (const entry of entries) if (entry.isIntersecting) {
+          for (const button of buttons) button.setAttribute('aria-current', String(button.dataset.target === entry.target.id));
+        }
+      }, { rootMargin: '-15% 0px -72% 0px', threshold: 0 });
+      for (const section of sections) observer.observe(section);
+    })();
+  </script>
+</body>
+</html>

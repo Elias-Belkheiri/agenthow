@@ -1,0 +1,39 @@
+# Credentials and local environment (templates may be shared)
+.env*
+!.env.example
+!.env.sample
+*.pem
+*.key
+*.p12
+*.pfx
+credentials*.json
+service-account*.json
+
+# Python environments, build output and caches
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+build/
+dist/
+*.egg-info/
+
+# JavaScript dependencies and local agent runtime
+node_modules/
+# Separate local third-party skill checkout, not application source
+/skills/
+.pi/
+.claude/settings.local.json
+
+# OS/editor/transient files
+.DS_Store
+*.swp
+*.swo
+*~
+*.log

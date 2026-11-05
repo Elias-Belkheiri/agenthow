@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "skills": {
+    "httpx": {
+      "source": "slanycukr/riot-api-project",
+      "sourceType": "github",
+      "skillPath": ".claude/skills/backend/httpx/SKILL.md",
+      "computedHash": "8d87f1d11205761d99e94e13446ebe902d1fc66cf8798af6716c6c2a667980c4"
+    },
+    "pydantic": {
+      "source": "pydantic/skills",
+      "sourceType": "github",
+      "skillPath": "skills/pydantic/SKILL.md",
+      "computedHash": "65f68dbab0f7e60bfd26998350d674a104848daf23311067e0829758a7cf6f91"
+    }
+  }
+}

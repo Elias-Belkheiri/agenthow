@@ -1,0 +1,169 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Architecture and tradeoffs of OS-level sandboxing versus containerization for engineers and technical decision-makers.">
+  <title>OS-level sandboxing vs containerization</title>
+  <style>
+    :root { color-scheme: light; --paper:#faf9f5; --ink:#172622; --muted:#50615b; --line:#cbd4cd; --accent:#165f57; --tint:#edf3ef; --warm:#f5eee2; }
+    * { box-sizing:border-box; }
+    html { scroll-behavior:smooth; }
+    body { margin:0; background:var(--paper); color:var(--ink); font:16px/1.6 Georgia,serif; }
+    main, header, footer { max-width:1040px; margin:auto; padding:0 24px; }
+    header { padding-top:56px; padding-bottom:35px; border-bottom:1px solid var(--line); }
+    h1,h2,h3 { line-height:1.16; letter-spacing:-.025em; }
+    h1 { max-width:780px; font-size:clamp(2.6rem,6vw,4.7rem); margin:12px 0 20px; }
+    h2 { font-size:clamp(1.8rem,3vw,2.5rem); margin:0 0 18px; }
+    h3 { font-size:1.15rem; margin:0 0 7px; }
+    p { margin:0 0 16px; }
+    .eyebrow, .label, figcaption, th, .step, nav, code, .small { font-family:ui-monospace,SFMono-Regular,Consolas,monospace; }
+    .eyebrow, .label { color:var(--accent); text-transform:uppercase; letter-spacing:.08em; font-size:.74rem; font-weight:bold; }
+    .lead { max-width:780px; font-size:1.25rem; }
+    nav { display:flex; flex-wrap:wrap; gap:8px 20px; font-size:.8rem; margin-top:25px; }
+    a { color:var(--accent); text-underline-offset:3px; }
+    a:focus-visible { outline:2px solid var(--accent); outline-offset:4px; }
+    section { padding:48px 0; border-bottom:1px solid var(--line); }
+    section > p { max-width:830px; }
+    .callout { padding:18px 22px; background:var(--tint); border-left:4px solid var(--accent); margin:24px 0; }
+    .callout p:last-child { margin-bottom:0; }
+    .two { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:24px; }
+    .two > div { min-width:0; }
+    figure { margin:22px 0; }
+    figcaption { color:var(--muted); font-size:.8rem; margin-top:12px; }
+    .frame { border:1px solid var(--line); background:white; padding:20px; }
+    .diagram-title { font:700 .78rem ui-monospace,SFMono-Regular,Consolas,monospace; text-transform:uppercase; letter-spacing:.06em; margin-bottom:14px; color:var(--accent); }
+    .stack { display:grid; gap:6px; }
+    .box { padding:10px 13px; border:1px solid var(--line); font-size:.91rem; line-height:1.42; }
+    .box strong { display:block; }
+    .box small { display:block; font-size:.78rem; color:var(--muted); }
+    .box.policy { background:var(--tint); border-color:#98b6a8; }
+    .box.kernel { background:var(--ink); color:white; border-color:var(--ink); }
+    .box.kernel small { color:#d7e3dc; }
+    .box.runtime { background:var(--warm); }
+    .arrow { text-align:center; color:var(--accent); font:700 1rem ui-monospace,SFMono-Regular,Consolas,monospace; line-height:1; }
+    .flow { display:flex; flex-wrap:wrap; align-items:stretch; gap:8px; }
+    .flow .box { flex:1 1 145px; }
+    .flow .arrow { align-self:center; }
+    .overlap { display:grid; grid-template-columns:1fr 1fr; gap:0; margin:22px 0; }
+    .overlap > div { padding:18px; border:1px solid var(--line); background:white; }
+    .overlap > div + div { border-left:0; }
+    .overlap .shared { grid-column:1/-1; background:var(--tint); border-top:0; }
+    ul,ol { padding-left:22px; margin:8px 0 18px; }
+    li { margin:6px 0; }
+    .table-scroll { overflow-x:auto; margin:20px 0; }
+    table { width:100%; border-collapse:collapse; font-size:.91rem; min-width:670px; }
+    th,td { padding:12px 14px; border-bottom:1px solid var(--line); text-align:left; vertical-align:top; }
+    th { background:var(--tint); font-size:.76rem; }
+    th:first-child { width:19%; }
+    td:first-child { font-weight:bold; }
+    .small { font-size:.79rem; color:var(--muted); }
+    footer { padding-top:30px; padding-bottom:54px; font-size:.86rem; color:var(--muted); }
+    @media (max-width:700px) { header { padding-top:35px; } section { padding:34px 0; } .two { grid-template-columns:1fr; } .overlap { grid-template-columns:1fr; } .overlap > div + div { border-left:1px solid var(--line); border-top:0; } .overlap .shared { grid-column:auto; } .flow { display:grid; } .flow .arrow { transform:rotate(90deg); } }
+    @media (prefers-reduced-motion:reduce) { html { scroll-behavior:auto; } }
+    @media print { body { background:white; } nav { display:none; } section { padding:22px 0; } .frame,.callout,.overlap,table { break-inside:avoid; } .box.kernel { background:white; color:black; border-color:black; } .box.kernel small { color:#333; } }
+  </style>
+</head>
+<body>
+  <header>
+    <span class="eyebrow">Architecture field guide / Linux-first</span>
+    <h1>OS-level sandboxing<br>vs containerization</h1>
+    <p class="lead">Two ways to constrain a process—but not two separate security technologies. A container usually <em>assembles OS isolation primitives</em> around a packaged application; a sandbox is the enforcement boundary and policy you choose.</p>
+    <nav aria-label="On this page"><a href="#mental-model">Mental model</a><a href="#architecture">Architecture</a><a href="#lifecycle">Execution path</a><a href="#comparison">Tradeoffs</a><a href="#decision">Decision guide</a></nav>
+  </header>
+  <main>
+    <section id="mental-model" aria-labelledby="mental-heading">
+      <span class="label">01 / Define the boundary</span>
+      <h2 id="mental-heading">Isolation is a spectrum, not a product name.</h2>
+      <p><strong>OS-level sandboxing</strong> applies kernel-enforced restrictions to a process or process tree: which files it can see or access, which system calls it may make, which identities it holds, whether it can use the network, and how many resources it can consume. A policy may be assembled directly around a single worker without a container image.</p>
+      <p><strong>Containerization</strong> adds an operational unit: an image/root filesystem, runtime, lifecycle, distribution and repeatable deployment. On Linux, the runtime normally uses many of the same kernel mechanisms to isolate the container’s processes. An image is packaging, <em>not</em> a security boundary.</p>
+      <div class="callout"><p><strong>Key distinction:</strong> “sandbox vs container” is not a mutually exclusive choice. A container can be a sandbox <em>if configured and enforced as one</em>; a sandbox can be implemented without a container. Neither term alone guarantees safe execution of hostile code.</p></div>
+      <figure aria-label="Conceptual overlap between sandboxing and containerization">
+        <div class="overlap">
+          <div><h3>Direct OS sandbox</h3><p>Launch a restricted worker with a small filesystem view, syscall policy, identity and resource budget. No image registry or container lifecycle required.</p></div>
+          <div><h3>Container platform</h3><p>Build/pull an image; create a root filesystem and a managed process; apply isolation and limits through the runtime configuration.</p></div>
+          <div class="shared"><h3>Shared enforcement layer</h3><p>Namespaces for views; cgroups/rlimits for resources; user IDs and capabilities for privilege; seccomp and LSMs (SELinux, AppArmor, Landlock) for access policy. Which controls apply depends on the host and configuration.</p></div>
+        </div>
+        <figcaption>Illustration 1 · Containers often compose the same OS mechanisms a direct sandbox configures individually.</figcaption>
+      </figure>
+    </section>
+
+    <section id="architecture" aria-labelledby="architecture-heading">
+      <span class="label">02 / Layered architecture</span>
+      <h2 id="architecture-heading">Where the boundaries actually sit</h2>
+      <div class="two">
+        <figure><div class="frame"><div class="diagram-title">A / Direct OS sandbox</div><div class="stack">
+          <div class="box"><strong>Trusted controller</strong><small>Supplies input; collects bounded output; kills on timeout</small></div>
+          <div class="arrow" aria-hidden="true">↓</div>
+          <div class="box policy"><strong>Sandbox setup</strong><small>Drop privilege · filesystem rules · syscall policy · network denial · quotas</small></div>
+          <div class="arrow" aria-hidden="true">↓</div>
+          <div class="box"><strong>Untrusted worker process</strong><small>Runs with only the installed restrictions</small></div>
+          <div class="box kernel"><strong>Shared host kernel</strong><small>Enforces the restrictions; kernel bugs remain in scope</small></div>
+        </div></div><figcaption>Illustration 2 · Policy is installed before untrusted code starts; setup failure must stop launch.</figcaption></figure>
+        <figure><div class="frame"><div class="diagram-title">B / Containerized worker</div><div class="stack">
+          <div class="box"><strong>Trusted controller → container runtime</strong><small>Requests an image, mounts, isolation and limits</small></div>
+          <div class="arrow" aria-hidden="true">↓</div>
+          <div class="box runtime"><strong>Image + writable layer</strong><small>Packaged root filesystem; optional ephemeral scratch</small></div>
+          <div class="box policy"><strong>Runtime-installed restrictions</strong><small>Namespaces · cgroups · UID mapping · capabilities · seccomp/LSM policy</small></div>
+          <div class="box"><strong>Untrusted container process</strong><small>Still a host-kernel process on native Linux</small></div>
+          <div class="box kernel"><strong>Shared host kernel</strong><small>Unless an additional VM boundary is introduced</small></div>
+        </div></div><figcaption>Illustration 3 · The image makes execution repeatable; the runtime configuration determines isolation.</figcaption></figure>
+      </div>
+      <p><strong>What each primitive does:</strong> mount/PID/network/IPC/user namespaces change what a process can see or which identity it has; cgroups bound CPU, memory and process counts; seccomp filters system calls; LSMs constrain permitted operations on objects. None is a complete sandbox alone. For example, a network namespace needs no usable interface (or an equivalent enforced policy) to deny networking; a read-only root does not make writable host mounts safe.</p>
+      <p class="small">Platform note: these are Linux mechanisms. macOS and Windows use different controls; Docker Desktop typically runs Linux containers inside a Linux VM, so its kernel boundary relative to the desktop host differs from native Linux containers.</p>
+    </section>
+
+    <section id="lifecycle" aria-labelledby="lifecycle-heading">
+      <span class="label">03 / Control &amp; data flow</span>
+      <h2 id="lifecycle-heading">One untrusted task, end to end</h2>
+      <figure><div class="frame"><div class="diagram-title">Trust boundary / request to observation</div><div class="flow">
+        <div class="box"><strong>1 · Validate request</strong><small>Trusted input, max size, policy selection</small></div><span class="arrow" aria-hidden="true">→</span>
+        <div class="box policy"><strong>2 · Create isolation</strong><small>Direct policy or hardened container</small></div><span class="arrow" aria-hidden="true">→</span>
+        <div class="box"><strong>3 · Execute worker</strong><small>Limited files, network, CPU, memory, processes</small></div><span class="arrow" aria-hidden="true">→</span>
+        <div class="box"><strong>4 · Collect &amp; destroy</strong><small>Cap output; deadline; kill descendants; discard state</small></div>
+      </div></div><figcaption>Illustration 4 · The trusted controller stays outside the execution boundary; return only bounded data, not host privileges.</figcaption></figure>
+      <div class="two">
+        <div><h3>Direct sandbox startup</h3><ol><li>Create a disposable workspace and narrow input/output channel.</li><li>Enter namespaces and/or apply filesystem, privilege and syscall restrictions in the safe order required by the platform.</li><li>Set resource limits, start the worker, supervise the process tree and remove temporary state.</li></ol></div>
+        <div><h3>Container startup</h3><ol><li>Select a pinned image and explicit runtime policy; avoid privileged mode and host-control sockets.</li><li>Runtime prepares rootfs, namespaces, mounts, cgroups and security profiles, then launches the process.</li><li>Controller enforces deadline/output limits; runtime stops the container and disposes of writable state.</li></ol></div>
+      </div>
+      <p><strong>Failure rule:</strong> if a required restriction cannot be applied, reject the job rather than silently running it with weaker permissions. A timeout without process-tree cleanup, or a path allowlist that can be bypassed with symlinks or mounted directories, is not containment.</p>
+    </section>
+
+    <section id="comparison" aria-labelledby="comparison-heading">
+      <span class="label">04 / Comparison</span>
+      <h2 id="comparison-heading">What changes in practice?</h2>
+      <div class="table-scroll"><table>
+        <thead><tr><th scope="col">Dimension</th><th scope="col">Direct OS-level sandbox</th><th scope="col">Containerization</th></tr></thead>
+        <tbody>
+          <tr><td>Primary unit</td><td>Constrained process/tree and explicit policy</td><td>Image + configured runtime instance/process group</td></tr>
+          <tr><td>Isolation</td><td>Only the specific controls you install and verify</td><td>Runtime typically composes OS controls; defaults vary and must be audited</td></tr>
+          <tr><td>Kernel boundary</td><td>Usually shared with host</td><td>Shared on native Linux; a VM-backed runtime adds a separate guest kernel</td></tr>
+          <tr><td>Reproducibility</td><td>Depends on host binaries, libraries and setup</td><td>Image pins user space; host kernel/runtime behavior can still vary</td></tr>
+          <tr><td>Startup/footprint</td><td>Potentially very low for preinstalled workers</td><td>Usually modest process startup; image pull/build and runtime add overhead</td></tr>
+          <tr><td>Portability</td><td>Policy APIs and privilege requirements vary by OS</td><td>Image workflow is portable across compatible runtimes; host features still vary</td></tr>
+          <tr><td>Operational cost</td><td>Custom policy, setup ordering and cleanup to maintain</td><td>Images, registry, runtime/daemon, patching and supply-chain controls to maintain</td></tr>
+          <tr><td>Common failure</td><td>Missing control, inherited file descriptor, race or policy bypass</td><td>Privileged mode, dangerous mounts, exposed runtime socket or permissive defaults</td></tr>
+        </tbody>
+      </table></div>
+      <p class="small">No universal security or speed ranking: compare concrete configurations, host environments and threat models—not labels.</p>
+      <div class="two">
+        <div><h3>Direct sandbox: strengths / costs</h3><p>Small deployment surface and fine-grained, auditable policy for a narrow worker. The price is platform-specific engineering, tricky setup order and responsibility for lifecycle, filesystem layout and cleanup.</p></div>
+        <div><h3>Containers: strengths / costs</h3><p>Repeatable user space and a familiar deployment interface, especially useful for many dependencies or teams. The price is image/runtime operations and dangerous configuration shortcuts; an unhardened container is not a hostile-code boundary.</p></div>
+      </div>
+    </section>
+
+    <section id="decision" aria-labelledby="decision-heading">
+      <span class="label">05 / Choosing a design</span>
+      <h2 id="decision-heading">Choose by threat model, not terminology.</h2>
+      <ul>
+        <li><strong>Known, cooperative code on one controlled host:</strong> a direct process sandbox may be simpler and faster to operate if the required OS policies are available.</li>
+        <li><strong>Repeatable app deployment with managed dependencies:</strong> use containers, then explicitly harden identities, mounts, networking, capabilities, syscall policy and resource limits.</li>
+        <li><strong>Untrusted tenant or model-generated code:</strong> treat either shared-kernel design as exposure to kernel attack surface. Use defense in depth (restricted API + OS policy + disposable workspace + strict supervision); consider a VM/microVM or remote isolated host when the consequence of escape warrants a separate kernel boundary.</li>
+      </ul>
+      <div class="callout"><p><strong>Practical default for untrusted code:</strong> put a minimal worker inside a hardened, disposable container <em>if a verified runtime is available</em>; otherwise use an equivalently enforced direct OS sandbox. Deny host-control sockets, minimize mounts, run without root/extra capabilities, block network unless explicitly needed, cap CPU/RAM/processes/output/time, and test attempted escape paths. If the host cannot enforce the required policy, do not run the task.</p></div>
+      <p><strong>Review questions:</strong> What is the attacker allowed to submit? Which kernel is shared? Which host paths and descriptors are exposed? Who can change runtime policy? What happens when a control fails? Can one task affect another? How do you test denial and cleanup?</p>
+    </section>
+  </main>
+  <footer>Reference concepts: Linux namespaces, cgroups, seccomp and LSMs; OCI image/runtime specifications. This is an architecture explainer, not a security certification or a claim that any particular configuration has been tested.</footer>
+</body>
+</html>
