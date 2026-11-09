@@ -68,6 +68,20 @@ as linked tool results; tools are never executed from JSON printed in answer tex
 There are no automatic provider retries. Reset keeps the same tool runtime snapshot;
 restart the application to stage a fresh one.
 
+## Startup troubleshooting
+
+If startup appears stuck before `agent>`, macOS cloud storage may have evicted
+files inside `student/.venv`. Importing OpenAI/LiteLLM then waits for file downloads,
+not an API response. The CLI checks SDK file metadata before importing them and
+refuses startup when it finds dataless cloud placeholders. In Finder, select
+`student/.venv`, choose **Download Now** (or **Keep Downloaded**), and wait for the
+download to finish before retrying. For a lasting fix, keep the checkout and its
+virtualenv outside iCloud-synced Desktop/Documents, or recreate the virtualenv in
+a non-cloud-synced location using the locked dependencies. No dependencies are
+installed or hydrated automatically. This check targets SDK placeholders; it is
+not a hard timeout for every possible filesystem/import stall. Ctrl-C during
+startup exits cleanly with status 130 and still attempts tool-runtime cleanup.
+
 ## Security scope
 
 The backend uses deprecated macOS `/usr/bin/sandbox-exec`, tested on the current

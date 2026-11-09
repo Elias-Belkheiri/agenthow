@@ -1,4 +1,4 @@
-from agent_chat import load_api_key, main
+from agent_chat import load_api_key, main, create_model_client as REAL_CREATE_MODEL_CLIENT
 
 
 def test_load_api_key_reads_dotenv_without_overriding_environment(monkeypatch, tmp_path):
@@ -78,6 +78,36 @@ def sandbox_cli_fakes(monkeypatch, *, ready=True, error=False):
     monkeypatch.setattr('agent_chat.load_api_key', lambda *a: 'fake')
     monkeypatch.setattr('agent_chat.create_model_client', lambda *a, **kw: Model())
     return events
+
+
+def test_startup_interrupt_is_clean_and_closes_tools(monkeypatch, tmp_path, capsys):
+    events = sandbox_cli_fakes(monkeypatch)
+
+    def interrupted(*args, **kwargs):
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr('agent_chat.create_model_client', interrupted)
+    assert main(['--provider', 'groq', '--model', 'test', '--workspace', str(tmp_path), '--task', 'x']) == 130
+    assert events[-1] == 'closed'
+    assert 'interrupted' in capsys.readouterr().err.lower()
+
+
+def test_dataless_dependencies_explained_before_factory_import(monkeypatch, tmp_path, capsys):
+    from agent_smith.providers import readiness
+    events = sandbox_cli_fakes(monkeypatch)
+    # Restore the real entry-point wrapper, not the heavy SDK factory.
+    monkeypatch.setattr('agent_chat.create_model_client', REAL_CREATE_MODEL_CLIENT)
+
+    def unavailable():
+        raise readiness.DependencyFilesUnavailable()
+
+    monkeypatch.setattr(readiness, 'check_provider_files', unavailable)
+    assert main(['--provider', 'groq', '--model', 'test', '--workspace', str(tmp_path), '--task', 'x']) == 2
+    assert events[-1] == 'closed'
+    error = capsys.readouterr().err
+    assert 'cloud placeholders' in error
+    assert 'Download Now' in error
+    assert 'Traceback' not in error
 
 
 def test_sandbox_one_shot_warning_and_close(monkeypatch, tmp_path, capsys):

@@ -10,6 +10,7 @@ from pathlib import Path
 # Keep the documented source-checkout invocation usable with uv's editable install.
 sys.path.insert(0, str(Path(__file__).parent / 'src'))
 
+from agent_smith.providers.readiness import DependencyFilesUnavailable
 from agent_smith.loop.chat import ChatRunner, ChatSession
 from agent_smith.tools.contracts import ToolContext
 from agent_smith.tools.dispatcher import ReadOnlyToolDispatcher
@@ -28,6 +29,9 @@ SANDBOX_WARNING = (
 
 def create_model_client(provider: str, *, model: str, api_url: str | None = None,
                         json_mode: bool = False):
+    # Check metadata before imports can block reading cloud-evicted SDK files.
+    from agent_smith.providers.readiness import check_provider_files
+    check_provider_files()
     # Defer optional dependencies for help/readiness checks and injected-model tests.
     from agent_smith.providers.factory import create_model_client as factory
     return factory(provider, model=model, api_url=api_url, json_mode=json_mode)
@@ -123,6 +127,12 @@ def main(argv: list[str] | None = None) -> int:
             load_api_key(args.provider)
             model = create_model_client(args.provider, model=args.model, api_url=args.provider_url, json_mode=False)
             model.provider_name = args.provider
+        except DependencyFilesUnavailable:
+            print('Chat could not start: provider dependencies are cloud placeholders, '
+                  'not local files. In Finder, select student/.venv and choose Download Now '
+                  '(or Keep Downloaded), wait for completion, then retry. Alternatively, '
+                  'recreate the virtualenv in a non-cloud-synced location.', file=sys.stderr)
+            return 2
         except Exception as exc:
             logging.getLogger(__name__).error('chat_start_failed', extra={'error_type': type(exc).__name__})
             print('Chat could not start; check sandbox support, provider configuration and workspace.', file=sys.stderr)
@@ -137,6 +147,9 @@ def main(argv: list[str] | None = None) -> int:
             return 1
         print(result.final_answer)
         return 0
+    except KeyboardInterrupt:
+        print('Chat interrupted.', file=sys.stderr)
+        return 130
     finally:
         if isinstance(tools, WorkspaceToolDispatcher):
             tools.close()
